@@ -1,0 +1,42 @@
+*.iml
+.gradle
+.kotlin
+/local.properties
+local.properties
+/.idea
+.idea/
+.DS_Store
+/build
+build/
+app/build/
+/captures
+.externalNativeBuild
+.cxx
+
+# Keys and sensitive secrets
+*.jks
+*.keystore
+debug.keystore
+.env*
+!.env.example
+.aistudio
+
+# Crash and replay logs
+*.log
+replay_pid*.log
+hs_err_*.log
+
+# InsForge & AI agent skills
+.insforge
+.agent
+.agents
+.augment
+.claude
+.cline
+.github/copilot*
+.kilocode
+.qoder
+.qwen
+.roo
+.trae
+.windsurf

@@ -1,0 +1,6 @@
+{
+  "name": "LinkUp Messenger",
+  "description": "Production-ready real-time messenger featuring instant chat, friend requests, unique user IDs, and responsive Material 3 design.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile document",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "fullName": { "type": "string" },
+        "fullNameLower": { "type": "string" },
+        "email": { "type": "string" },
+        "userId": { "type": "string" },
+        "profileImage": { "type": "string" },
+        "bio": { "type": "string" },
+        "lastSeen": { "type": "integer" },
+        "createdAt": { "type": "integer" },
+        "pinnedChats": { "type": "array" },
+        "allowRequests": { "type": "boolean" },
+        "showLastSeen": { "type": "boolean" },
+        "fcmTokens": { "type": "array" }
+      },
+      "required": ["uid", "fullName", "userId"]
+    },
+    "Username": {
+      "title": "Username",
+      "description": "Unique username claim mapping to user ID",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" }
+      },
+      "required": ["uid"]
+    },
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "description": "Deterministic friend request connecting two users",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderUserId": { "type": "string" },
+        "senderAvatar": { "type": "string" },
+        "receiverName": { "type": "string" },
+        "receiverUserId": { "type": "string" },
+        "receiverAvatar": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "createdAt": { "type": "integer" }
+      },
+      "required": ["senderId", "receiverId", "status"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "Direct chat conversation between two users",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string" },
+        "participants": { "type": "array" },
+        "lastMessage": { "type": "string" },
+        "lastMessageSenderId": { "type": "string" },
+        "lastMessageTime": { "type": "integer" },
+        "unread": { "type": "object" },
+        "createdAt": { "type": "integer" }
+      },
+      "required": ["participants"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Individual message inside a chat conversation",
+      "type": "object",
+      "properties": {
+        "messageId": { "type": "string" },
+        "chatId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "object" },
+        "status": { "type": "string", "enum": ["sent", "delivered", "seen"] },
+        "replyTo": { "type": "object" }
+      },
+      "required": ["senderId", "text"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/usernames/{userId}": {
+      "schema": "Username",
+      "description": "Unique username claim documents"
+    },
+    "/friendRequests/{requestId}": {
+      "schema": "FriendRequest",
+      "description": "Friend request invitations"
+    },
+    "/chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Direct message channels"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages inside direct chat channels"
+    }
+  }
+}
