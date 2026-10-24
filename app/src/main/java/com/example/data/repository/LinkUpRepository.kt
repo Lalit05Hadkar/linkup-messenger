@@ -165,41 +165,69 @@ class LinkUpRepository(private val context: Context) {
     // --- Authentication ---
 
     fun signInWithGoogle(
-        email: String? = null,
+        email: String,
         displayName: String? = null,
         googleUid: String? = null,
-        onSuccess: (isNewUser: Boolean) -> Unit
+        idToken: String? = null,
+        onSuccess: (isNewUser: Boolean) -> Unit,
+        onError: (String) -> Unit
     ) {
-        val resolvedEmail = email ?: "user@linkup.chat"
+        val resolvedEmail = email.trim()
+        if (resolvedEmail.isEmpty() || !resolvedEmail.contains("@")) {
+            onError("Invalid Google account email.")
+            return
+        }
         val resolvedName = displayName ?: (if (resolvedEmail.contains("@")) resolvedEmail.substringBefore("@").replace(".", " ").capitalizeWords() else "LinkUp User")
-        val uid = googleUid ?: ("user_" + UUID.nameUUIDFromBytes(resolvedEmail.toByteArray()).toString().take(12))
+        val uid = googleUid ?: ("google_" + UUID.nameUUIDFromBytes(resolvedEmail.toByteArray()).toString().take(12))
 
         repositoryScope.launch {
-            val remoteUser = insforge.getUser(uid)
-            val isExistingUser = remoteUser != null && remoteUser.userId.isNotBlank()
+            try {
+                val remoteUser = insforge.getUser(uid)
+                val isExistingUser = remoteUser != null && remoteUser.userId.isNotBlank()
 
-            val user = remoteUser ?: User(
-                uid = uid,
-                fullName = resolvedName,
-                fullNameLower = resolvedName.lowercase(),
-                email = resolvedEmail,
-                userId = "",
-                profileImage = "",
-                bio = "",
-                createdAt = System.currentTimeMillis()
-            )
-            saveUser(user)
-            insforge.upsertUser(user)
-            startInsForgeSync()
-            withContext(Dispatchers.Main) {
-                onSuccess(!isExistingUser)
+                val user = remoteUser ?: User(
+                    uid = uid,
+                    fullName = resolvedName,
+                    fullNameLower = resolvedName.lowercase(),
+                    email = resolvedEmail,
+                    userId = "",
+                    profileImage = "",
+                    bio = "",
+                    createdAt = System.currentTimeMillis()
+                )
+                saveUser(user)
+                insforge.upsertUser(user)
+                startInsForgeSync()
+                withContext(Dispatchers.Main) {
+                    onSuccess(!isExistingUser)
+                }
+            } catch (e: Exception) {
+                Log.e("LinkUpRepository", "signInWithGoogle error", e)
+                withContext(Dispatchers.Main) {
+                    onError(e.localizedMessage ?: "Google Sign-In failed.")
+                }
             }
         }
     }
 
-    fun signInWithEmail(email: String, password: String, onSuccess: (isNewUser: Boolean) -> Unit) {
+    fun signInWithEmail(
+        email: String,
+        password: String,
+        onSuccess: (isNewUser: Boolean) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val trimmedEmail = email.trim()
+        if (trimmedEmail.isEmpty() || !trimmedEmail.contains("@") || !trimmedEmail.contains(".")) {
+            onError("Please enter a valid email address.")
+            return
+        }
+        if (password.length < 6) {
+            onError("Password must be at least 6 characters.")
+            return
+        }
+
         repositoryScope.launch {
-            val res = insforge.signIn(email, password)
+            val res = insforge.signIn(trimmedEmail, password)
             if (res.isSuccess) {
                 val authUser = res.getOrNull()!!
                 prefs.edit()
@@ -212,9 +240,9 @@ class LinkUpRepository(private val context: Context) {
                 val isExistingUser = remoteUser != null && remoteUser.userId.isNotBlank()
                 val user = remoteUser ?: User(
                     uid = authUser.id,
-                    fullName = if (authUser.name.isNotBlank()) authUser.name else email.substringBefore("@").replace(".", " ").capitalizeWords(),
-                    fullNameLower = (if (authUser.name.isNotBlank()) authUser.name else email.substringBefore("@")).lowercase(),
-                    email = email,
+                    fullName = if (authUser.name.isNotBlank()) authUser.name else trimmedEmail.substringBefore("@").replace(".", " ").capitalizeWords(),
+                    fullNameLower = (if (authUser.name.isNotBlank()) authUser.name else trimmedEmail.substringBefore("@")).lowercase(),
+                    email = trimmedEmail,
                     userId = "",
                     createdAt = System.currentTimeMillis()
                 )
@@ -224,82 +252,60 @@ class LinkUpRepository(private val context: Context) {
                     onSuccess(!isExistingUser)
                 }
             } else {
-                // Try registering account if not yet created
-                val signUpRes = insforge.signUp(email, password, email.substringBefore("@").replace(".", " ").capitalizeWords())
-                if (signUpRes.isSuccess) {
-                    val authUser = signUpRes.getOrNull()!!
-                    prefs.edit()
-                        .putString("insforge_access_token", authUser.accessToken)
-                        .putString("insforge_refresh_token", authUser.refreshToken)
-                        .apply()
-                    insforge.currentAccessToken = authUser.accessToken
-
-                    val user = User(
-                        uid = authUser.id,
-                        fullName = if (authUser.name.isNotBlank()) authUser.name else email.substringBefore("@").replace(".", " ").capitalizeWords(),
-                        fullNameLower = (if (authUser.name.isNotBlank()) authUser.name else email.substringBefore("@")).lowercase(),
-                        email = email,
-                        userId = "",
-                        createdAt = System.currentTimeMillis()
-                    )
-                    saveUser(user)
-                    insforge.upsertUser(user)
-                    startInsForgeSync()
-                    withContext(Dispatchers.Main) {
-                        onSuccess(true)
-                    }
-                } else {
-                    // Fallback local user if offline
-                    val fallbackUid = "user_" + UUID.nameUUIDFromBytes(email.toByteArray()).toString().take(12)
-                    val name = email.substringBefore("@").replace(".", " ").capitalizeWords()
-                    val user = User(
-                        uid = fallbackUid,
-                        fullName = name,
-                        fullNameLower = name.lowercase(),
-                        email = email,
-                        userId = "",
-                        createdAt = System.currentTimeMillis()
-                    )
-                    saveUser(user)
-                    insforge.upsertUser(user)
-                    startInsForgeSync()
-                    withContext(Dispatchers.Main) {
-                        onSuccess(true)
-                    }
+                val errMsg = res.exceptionOrNull()?.message ?: "Invalid email or password. Please try again."
+                withContext(Dispatchers.Main) {
+                    onError(errMsg)
                 }
             }
         }
     }
 
-    fun createAccountWithEmail(email: String, password: String, onSuccess: () -> Unit) {
+    fun createAccountWithEmail(
+        email: String,
+        password: String,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val trimmedEmail = email.trim()
+        if (trimmedEmail.isEmpty() || !trimmedEmail.contains("@") || !trimmedEmail.contains(".")) {
+            onError("Please enter a valid email address.")
+            return
+        }
+        if (password.length < 6) {
+            onError("Password must be at least 6 characters.")
+            return
+        }
+
         repositoryScope.launch {
-            val signUpRes = insforge.signUp(email, password, email.substringBefore("@").replace(".", " ").capitalizeWords())
-            val uid = if (signUpRes.isSuccess) {
+            val name = trimmedEmail.substringBefore("@").replace(".", " ").capitalizeWords()
+            val signUpRes = insforge.signUp(trimmedEmail, password, name)
+            if (signUpRes.isSuccess) {
                 val authUser = signUpRes.getOrNull()!!
                 prefs.edit()
                     .putString("insforge_access_token", authUser.accessToken)
                     .putString("insforge_refresh_token", authUser.refreshToken)
                     .apply()
                 insforge.currentAccessToken = authUser.accessToken
-                authUser.id
-            } else {
-                "user_" + UUID.nameUUIDFromBytes(email.toByteArray()).toString().take(12)
-            }
 
-            val name = email.substringBefore("@").replace(".", " ").capitalizeWords()
-            val user = User(
-                uid = uid,
-                fullName = name,
-                fullNameLower = name.lowercase(),
-                email = email,
-                userId = "",
-                createdAt = System.currentTimeMillis()
-            )
-            saveUser(user)
-            insforge.upsertUser(user)
-            startInsForgeSync()
-            withContext(Dispatchers.Main) {
-                onSuccess()
+                val user = User(
+                    uid = authUser.id,
+                    fullName = if (authUser.name.isNotBlank()) authUser.name else name,
+                    fullNameLower = (if (authUser.name.isNotBlank()) authUser.name else name).lowercase(),
+                    email = trimmedEmail,
+                    userId = "",
+                    createdAt = System.currentTimeMillis()
+                )
+                saveUser(user)
+                insforge.upsertUser(user)
+                startInsForgeSync()
+                withContext(Dispatchers.Main) {
+                    onSuccess()
+                }
+            } else {
+                val errMsg = signUpRes.exceptionOrNull()?.message ?: "Account registration failed. Please try a different email."
+                withContext(Dispatchers.Main) {
+                    onError(errMsg)
+                }
             }
         }
     }
@@ -573,70 +579,6 @@ class LinkUpRepository(private val context: Context) {
             // Write to InsForge Backend
             insforge.upsertChat(updatedChat)
             insforge.sendMessage(newMessage)
-
-            delay(400)
-            updateMessageStatus(chatId, messageId, MessageStatus.DELIVERED)
-            insforge.updateMessageStatus(messageId, MessageStatus.DELIVERED)
-
-            delay(900)
-            updateMessageStatus(chatId, messageId, MessageStatus.SEEN)
-            insforge.updateMessageStatus(messageId, MessageStatus.SEEN)
-
-            simulateFriendReply(chatId, otherParticipant, text)
-        }
-    }
-
-    private fun simulateFriendReply(chatId: String, friendUid: String, userText: String) {
-        val friend = _allUsers.value.find { it.uid == friendUid } ?: return
-        repositoryScope.launch {
-            setTyping(chatId, true)
-            delay(1600)
-            setTyping(chatId, false)
-
-            val replyText = when {
-                userText.contains("hello", ignoreCase = true) || userText.contains("hi", ignoreCase = true) ->
-                    "Hey there! How is everything going?"
-                userText.contains("how are you", ignoreCase = true) ->
-                    "Doing great! InsForge Postgres backend is connected and live."
-                userText.contains("insforge", ignoreCase = true) ->
-                    "InsForge is awesome! Real Postgres, RLS, and fast REST APIs."
-                userText.contains("design", ignoreCase = true) ->
-                    "The Material 3 aesthetic and clean colors look super sharp!"
-                userText.contains("meet", ignoreCase = true) || userText.contains("tomorrow", ignoreCase = true) ->
-                    "Sounds awesome, let's catch up at 2 PM."
-                else ->
-                    "Got your message! InsForge cloud sync is active."
-            }
-
-            val replyMsgId = "msg_" + UUID.randomUUID().toString()
-            val replyMsg = Message(
-                messageId = replyMsgId,
-                chatId = chatId,
-                senderId = friendUid,
-                text = replyText,
-                timestamp = System.currentTimeMillis(),
-                status = MessageStatus.SENT
-            )
-
-            val currentMsgs = _messages.value[chatId] ?: emptyList()
-            val newMsgs = _messages.value.toMutableMap()
-            newMsgs[chatId] = currentMsgs + replyMsg
-            _messages.value = newMsgs
-
-            val current = _currentUser.value
-            val chatObj = Chat(
-                chatId = chatId,
-                participants = listOf(current?.uid ?: "", friendUid),
-                lastMessage = replyText,
-                lastMessageSenderId = friendUid,
-                lastMessageTime = System.currentTimeMillis()
-            )
-            _chats.value = (_chats.value.filter { it.chatId != chatId } + chatObj)
-                .sortedByDescending { it.lastMessageTime }
-
-            // Store simulated reply in InsForge as well
-            insforge.upsertChat(chatObj)
-            insforge.sendMessage(replyMsg)
         }
     }
 

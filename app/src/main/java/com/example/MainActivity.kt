@@ -26,6 +26,7 @@ import com.example.ui.screens.edit_profile.EditProfileScreen
 import com.example.ui.screens.home.HomeScreen
 import com.example.ui.screens.profile_setup.ProfileSetupScreen
 import com.example.ui.screens.splash.SplashScreen
+import com.example.ui.screens.call.VoiceCallScreen
 import com.example.ui.screens.voice_live.LiveVoiceScreen
 import com.example.ui.theme.LinkUpTheme
 import com.example.viewmodel.AppScreen
@@ -80,6 +81,12 @@ class MainActivity : ComponentActivity() {
                                 is AppScreen.EditProfile -> EditProfileScreen(viewModel = viewModel)
                                 is AppScreen.LiveVoice -> LiveVoiceScreen(
                                     onDismiss = { viewModel.handleBack() }
+                                )
+                                is AppScreen.VoiceCall -> VoiceCallScreen(
+                                    friendUid = screen.friendUid,
+                                    friendName = screen.friendName,
+                                    friendAvatar = screen.friendAvatar,
+                                    onEndCall = { viewModel.handleBack() }
                                 )
                             }
                         }

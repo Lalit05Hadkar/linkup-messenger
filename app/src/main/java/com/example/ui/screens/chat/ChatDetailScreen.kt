@@ -169,14 +169,20 @@ fun ChatDetailScreen(
                     )
                 }
 
-                // AI Live Voice Call
+                // 1-on-1 Contact Voice Call
                 IconButton(
-                    onClick = { viewModel.navigateTo(AppScreen.LiveVoice) },
-                    modifier = Modifier.testTag("live_voice_call_button")
+                    onClick = {
+                        viewModel.startVoiceCall(
+                            friendUid = friend.uid,
+                            friendName = friend.fullName,
+                            friendAvatar = friend.profileImage
+                        )
+                    },
+                    modifier = Modifier.testTag("voice_call_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Call,
-                        contentDescription = "Live Voice Conversation (gemini-3.8-live)",
+                        contentDescription = "Voice Call with ${friend.fullName}",
                         tint = AccentBlue
                     )
                 }

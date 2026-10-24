@@ -29,6 +29,11 @@ sealed interface AppScreen {
     object Home : AppScreen
     data class ChatDetail(val friendUid: String, val chatId: String) : AppScreen
     object EditProfile : AppScreen
+    data class VoiceCall(
+        val friendUid: String,
+        val friendName: String,
+        val friendAvatar: String = ""
+    ) : AppScreen
     object LiveVoice : AppScreen
 }
 
@@ -77,6 +82,21 @@ class LinkUpViewModel(application: Application) : AndroidViewModel(application) 
     // Transient UI toast / snackbar message
     private val _toastMessage = MutableStateFlow<String?>(null)
     val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
+
+    // Auth state & errors
+    private val _authLoading = MutableStateFlow(false)
+    val authLoading: StateFlow<Boolean> = _authLoading.asStateFlow()
+
+    private val _authErrorMessage = MutableStateFlow<String?>(null)
+    val authErrorMessage: StateFlow<String?> = _authErrorMessage.asStateFlow()
+
+    fun clearAuthError() {
+        _authErrorMessage.value = null
+    }
+
+    fun startVoiceCall(friendUid: String, friendName: String, friendAvatar: String = "") {
+        _currentScreen.value = AppScreen.VoiceCall(friendUid, friendName, friendAvatar)
+    }
 
     private var searchJob: Job? = null
     private var validationJob: Job? = null
@@ -164,32 +184,75 @@ class LinkUpViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun signInWithGoogle(email: String? = null, displayName: String? = null) {
-        repository.signInWithGoogle(email = email, displayName = displayName) { isNewUser ->
-            val user = repository.currentUser.value
-            if (!isNewUser && user != null && user.userId.isNotBlank()) {
-                _currentScreen.value = AppScreen.Home
-            } else {
-                _currentScreen.value = AppScreen.ProfileSetup
+    fun signInWithGoogle(
+        email: String,
+        displayName: String? = null,
+        googleUid: String? = null,
+        idToken: String? = null
+    ) {
+        _authLoading.value = true
+        _authErrorMessage.value = null
+        repository.signInWithGoogle(
+            email = email,
+            displayName = displayName,
+            googleUid = googleUid,
+            idToken = idToken,
+            onSuccess = { isNewUser ->
+                _authLoading.value = false
+                val user = repository.currentUser.value
+                if (!isNewUser && user != null && user.userId.isNotBlank()) {
+                    _currentScreen.value = AppScreen.Home
+                } else {
+                    _currentScreen.value = AppScreen.ProfileSetup
+                }
+            },
+            onError = { err ->
+                _authLoading.value = false
+                _authErrorMessage.value = err
+                _toastMessage.value = err
             }
-        }
+        )
     }
 
     fun signInWithEmail(email: String, password: String) {
-        repository.signInWithEmail(email, password) { isNewUser ->
-            val user = repository.currentUser.value
-            if (user != null && user.userId.isNotBlank()) {
-                _currentScreen.value = AppScreen.Home
-            } else {
-                _currentScreen.value = AppScreen.ProfileSetup
+        _authLoading.value = true
+        _authErrorMessage.value = null
+        repository.signInWithEmail(
+            email = email,
+            password = password,
+            onSuccess = { isNewUser ->
+                _authLoading.value = false
+                val user = repository.currentUser.value
+                if (user != null && user.userId.isNotBlank()) {
+                    _currentScreen.value = AppScreen.Home
+                } else {
+                    _currentScreen.value = AppScreen.ProfileSetup
+                }
+            },
+            onError = { err ->
+                _authLoading.value = false
+                _authErrorMessage.value = err
+                _toastMessage.value = err
             }
-        }
+        )
     }
 
     fun createAccountWithEmail(email: String, password: String) {
-        repository.createAccountWithEmail(email, password) {
-            _currentScreen.value = AppScreen.ProfileSetup
-        }
+        _authLoading.value = true
+        _authErrorMessage.value = null
+        repository.createAccountWithEmail(
+            email = email,
+            password = password,
+            onSuccess = {
+                _authLoading.value = false
+                _currentScreen.value = AppScreen.ProfileSetup
+            },
+            onError = { err ->
+                _authLoading.value = false
+                _authErrorMessage.value = err
+                _toastMessage.value = err
+            }
+        )
     }
 
     fun completeProfileSetup(fullName: String, userId: String, bio: String, avatar: String) {
@@ -336,6 +399,13 @@ class LinkUpViewModel(application: Application) : AndroidViewModel(application) 
             }
             is AppScreen.LiveVoice -> {
                 _currentScreen.value = AppScreen.Home
+                true
+            }
+            is AppScreen.VoiceCall -> {
+                val user = repository.currentUser.value
+                val myUid = user?.uid ?: ""
+                val chatId = repository.getChatId(myUid, screen.friendUid)
+                _currentScreen.value = AppScreen.ChatDetail(screen.friendUid, chatId)
                 true
             }
             else -> false
