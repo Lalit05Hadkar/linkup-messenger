@@ -1,21 +1,50 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ProGuard & R8 Configuration for LinkUp Messenger
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Keep Line numbers and source files for readable stacktraces
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Data Models & JSON Serialization (Moshi, Kotlinx, JSONObject)
+-keep class com.example.data.model.** { *; }
+-keepclassmembers class com.example.data.model.** { *; }
+-keep class com.example.data.insforge.** { *; }
+-keepclassmembers class com.example.data.insforge.** { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# BuildConfig
+-keep class com.example.BuildConfig { *; }
+
+# Jetpack Compose
+-dontwarn androidx.compose.**
+
+# Kotlin Coroutines
+-dontwarn kotlinx.coroutines.**
+-keepclassmembers class kotlinx.coroutines.** { *; }
+
+# OkHttp & Okio
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-keepnames class okhttp3.internal.publicsuffix.PublicSuffixDatabase
+
+# Retrofit
+-dontwarn retrofit2.**
+-keep class retrofit2.** { *; }
+
+# Coil Image Loader
+-dontwarn coil.**
+-keep class coil.** { *; }
+
+# AndroidX Security & Crypto (EncryptedSharedPreferences)
+-dontwarn androidx.security.crypto.**
+-keep class androidx.security.crypto.** { *; }
+
+# AndroidX Credentials & Google Identity
+-dontwarn androidx.credentials.**
+-keep class androidx.credentials.** { *; }
+-dontwarn com.google.android.libraries.identity.googleid.**
+-keep class com.google.android.libraries.identity.googleid.** { *; }
+
+# Firebase components
+-dontwarn com.google.firebase.**
+-keep class com.google.firebase.** { *; }

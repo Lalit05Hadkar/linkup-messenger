@@ -10,10 +10,12 @@ import com.example.data.model.RequestStatus
 import com.example.data.model.User
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -28,21 +30,127 @@ data class InsForgeAuthUser(
 
 class InsForgeClient(
     private val baseUrl: String = InsForgeConfig.BASE_URL,
-    private val anonKey: String = InsForgeConfig.ANON_KEY
+    private val anonKey: String = InsForgeConfig.ANON_KEY,
+    private val tokenStorage: InsForgeTokenStorage? = null,
+    private val onSignOut: (() -> Unit)? = null
 ) {
-    private val client = OkHttpClient.Builder()
+    private val rawClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .addInterceptor(AuthRefreshInterceptor())
+        .build()
 
-    var currentAccessToken: String? = null
+    private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+    private val refreshLock = Any()
+
+    var currentAccessToken: String? = tokenStorage?.getAccessToken()
 
     private fun getAuthHeader(): String {
         val token = currentAccessToken
         return if (!token.isNullOrBlank()) "Bearer $token" else "Bearer $anonKey"
+    }
+
+    fun clearAuthSession() {
+        currentAccessToken = null
+        tokenStorage?.clearTokens()
+    }
+
+    private inner class AuthRefreshInterceptor : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val originalRequest = chain.request()
+            val path = originalRequest.url.encodedPath
+
+            // Do not intercept authentication endpoints to avoid recursion
+            if (path.contains("/api/auth/refresh") ||
+                path.contains("/api/auth/sessions") ||
+                path.contains("/api/auth/users")
+            ) {
+                return chain.proceed(originalRequest)
+            }
+
+            val response = chain.proceed(originalRequest)
+            if (response.code == 401) {
+                response.close()
+
+                val priorToken = originalRequest.header("Authorization")?.removePrefix("Bearer ")?.trim()
+
+                synchronized(refreshLock) {
+                    val activeToken = currentAccessToken
+                    val needRefresh = activeToken.isNullOrBlank() || activeToken == priorToken
+
+                    var refreshSucceeded = false
+                    if (needRefresh) {
+                        val refreshToken = tokenStorage?.getRefreshToken()
+                        if (!refreshToken.isNullOrBlank()) {
+                            refreshSucceeded = performTokenRefresh(refreshToken)
+                        }
+                    } else {
+                        // Another concurrent thread already refreshed the token
+                        refreshSucceeded = true
+                    }
+
+                    if (refreshSucceeded && !currentAccessToken.isNullOrBlank()) {
+                        val retriedRequest = originalRequest.newBuilder()
+                            .header("Authorization", "Bearer $currentAccessToken")
+                            .build()
+                        val retriedResponse = chain.proceed(retriedRequest)
+                        if (retriedResponse.code == 401) {
+                            Log.w("InsForgeClient", "Retried request failed with 401. Triggering sign out.")
+                            clearAuthSession()
+                            onSignOut?.invoke()
+                        }
+                        return retriedResponse
+                    } else {
+                        Log.w("InsForgeClient", "Refresh token failed or unavailable. Triggering sign out.")
+                        clearAuthSession()
+                        onSignOut?.invoke()
+                        return chain.proceed(originalRequest)
+                    }
+                }
+            }
+
+            return response
+        }
+    }
+
+    private fun performTokenRefresh(refreshToken: String): Boolean {
+        return try {
+            val json = JSONObject().apply {
+                put("refreshToken", refreshToken)
+            }
+            val request = Request.Builder()
+                .url("$baseUrl/api/auth/refresh?client_type=mobile")
+                .header("Authorization", "Bearer $anonKey")
+                .header("Content-Type", "application/json")
+                .post(json.toString().toRequestBody(jsonMediaType))
+                .build()
+
+            val response = rawClient.newCall(request).execute()
+            val body = response.body?.string().orEmpty()
+            if (response.isSuccessful && body.isNotBlank()) {
+                val root = JSONObject(body)
+                val newAccessToken = root.optString("accessToken").ifBlank { root.optString("token") }
+                val newRefreshToken = root.optString("refreshToken").ifBlank { refreshToken }
+                if (newAccessToken.isNotBlank()) {
+                    currentAccessToken = newAccessToken
+                    tokenStorage?.saveTokens(newAccessToken, newRefreshToken)
+                    Log.i("InsForgeClient", "Access token refreshed successfully")
+                    return true
+                }
+            }
+            Log.w("InsForgeClient", "Token refresh endpoint returned error ${response.code}: $body")
+            false
+        } catch (e: Exception) {
+            Log.e("InsForgeClient", "Token refresh exception", e)
+            false
+        }
     }
 
     // --- Authentication ---
@@ -73,7 +181,10 @@ class InsForgeClient(
                     val resName = profile?.optString("name") ?: name
                     val accessToken = root.optString("accessToken")
                     val refreshToken = root.optString("refreshToken")
-                    if (accessToken.isNotBlank()) currentAccessToken = accessToken
+                    if (accessToken.isNotBlank()) {
+                        currentAccessToken = accessToken
+                        tokenStorage?.saveTokens(accessToken, refreshToken)
+                    }
                     Result.success(
                         InsForgeAuthUser(
                             id = id,
@@ -123,7 +234,10 @@ class InsForgeClient(
                     val resName = profile?.optString("name") ?: ""
                     val accessToken = root.optString("accessToken")
                     val refreshToken = root.optString("refreshToken")
-                    if (accessToken.isNotBlank()) currentAccessToken = accessToken
+                    if (accessToken.isNotBlank()) {
+                        currentAccessToken = accessToken
+                        tokenStorage?.saveTokens(accessToken, refreshToken)
+                    }
                     Result.success(
                         InsForgeAuthUser(
                             id = id,

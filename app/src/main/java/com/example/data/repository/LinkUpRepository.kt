@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import com.example.data.insforge.InsForgeClient
+import com.example.data.insforge.InsForgeTokenStorage
 import com.example.data.model.Chat
 import com.example.data.model.FriendRequest
 import com.example.data.model.Message
@@ -29,8 +30,13 @@ class LinkUpRepository(private val context: Context) {
         context.getSharedPreferences("linkup_messenger_prefs", Context.MODE_PRIVATE)
     private val repositoryScope = CoroutineScope(Dispatchers.Default)
 
+    val tokenStorage = InsForgeTokenStorage(context)
+
     // InsForge Backend Client
-    val insforge = InsForgeClient()
+    val insforge = InsForgeClient(
+        tokenStorage = tokenStorage,
+        onSignOut = { logout() }
+    )
 
     // Current logged-in user
     private val _currentUser = MutableStateFlow<User?>(null)
@@ -79,7 +85,7 @@ class LinkUpRepository(private val context: Context) {
             AppThemeMode.SYSTEM
         }
 
-        val savedToken = prefs.getString("insforge_access_token", null)
+        val savedToken = tokenStorage.getAccessToken() ?: prefs.getString("insforge_access_token", null)
         if (!savedToken.isNullOrBlank()) {
             insforge.currentAccessToken = savedToken
         }
@@ -230,6 +236,7 @@ class LinkUpRepository(private val context: Context) {
             val res = insforge.signIn(trimmedEmail, password)
             if (res.isSuccess) {
                 val authUser = res.getOrNull()!!
+                tokenStorage.saveTokens(authUser.accessToken, authUser.refreshToken)
                 prefs.edit()
                     .putString("insforge_access_token", authUser.accessToken)
                     .putString("insforge_refresh_token", authUser.refreshToken)
@@ -281,6 +288,7 @@ class LinkUpRepository(private val context: Context) {
             val signUpRes = insforge.signUp(trimmedEmail, password, name)
             if (signUpRes.isSuccess) {
                 val authUser = signUpRes.getOrNull()!!
+                tokenStorage.saveTokens(authUser.accessToken, authUser.refreshToken)
                 prefs.edit()
                     .putString("insforge_access_token", authUser.accessToken)
                     .putString("insforge_refresh_token", authUser.refreshToken)
@@ -369,7 +377,7 @@ class LinkUpRepository(private val context: Context) {
     fun logout() {
         syncJob?.cancel()
         _currentUser.value = null
-        insforge.currentAccessToken = null
+        insforge.clearAuthSession()
         prefs.edit().clear().apply()
     }
 

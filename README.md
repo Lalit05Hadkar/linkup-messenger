@@ -62,11 +62,12 @@ Database migrations and schemas are tracked in [`migrations/`](migrations/).
    ```
 
 2. **Configure Environment:**
-   Create a `.env.local` or `.env` file in the project root:
+   Create a `.env` or `local.properties` file in the project root:
    ```env
-   INSFORGE_PROJECT_URL=https://4u3psaut.us-east.insforge.app
+   INSFORGE_PROJECT_URL=https://<your-appkey>.us-east.insforge.app
    INSFORGE_ANON_KEY=your_anon_key_here
    ```
+   Values are injected securely at build time into `BuildConfig` fields without hardcoding secrets in code.
 
 3. **Build and Run:**
    - Open the project in Android Studio.
@@ -79,11 +80,19 @@ Database migrations and schemas are tracked in [`migrations/`](migrations/).
 
 ### 📦 Building Release APK
 
-To produce an optimized production release build:
+Release builds enforce R8 code & resource shrinking and require release keystore credentials via environment variables:
 ```bash
+# On Linux/macOS
+export STORE_PASSWORD="your-keystore-password"
+export KEY_PASSWORD="your-key-password"
 ./gradlew assembleRelease
+
+# On Windows (PowerShell)
+$env:STORE_PASSWORD="your-keystore-password"
+$env:KEY_PASSWORD="your-key-password"
+.\gradlew.bat assembleRelease
 ```
-The resulting signed APK will be generated at:
+The resulting signed and optimized APK will be generated at:
 `app/build/outputs/apk/release/app-release.apk`
 
 ---

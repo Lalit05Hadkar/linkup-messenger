@@ -1,4 +1,32 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
+
+val envProperties = Properties().apply {
+  val envFile = rootProject.file(".env")
+  if (envFile.exists()) {
+    envFile.inputStream().use { load(it) }
+  }
+}
+
+val localProperties = Properties().apply {
+  val localFile = rootProject.file("local.properties")
+  if (localFile.exists()) {
+    localFile.inputStream().use { load(it) }
+  }
+}
+
+fun getSecret(key: String, alternateKey: String? = null, defaultVal: String = ""): String {
+  val sysEnv = System.getenv(key) ?: (alternateKey?.let { System.getenv(it) })
+  if (!sysEnv.isNullOrBlank()) return sysEnv
+  val localProp = localProperties.getProperty(key) ?: (alternateKey?.let { localProperties.getProperty(it) })
+  if (!localProp.isNullOrBlank()) return localProp
+  val envProp = envProperties.getProperty(key) ?: (alternateKey?.let { envProperties.getProperty(it) })
+  if (!envProp.isNullOrBlank()) return envProp
+  return defaultVal
+}
+
+val insforgeBaseUrl = getSecret("INSFORGE_BASE_URL", "INSFORGE_PROJECT_URL", "https://4u3psaut.us-east.insforge.app")
+val insforgeAnonKey = getSecret("INSFORGE_ANON_KEY", defaultVal = "")
 
 plugins {
   alias(libs.plugins.android.application)
@@ -20,6 +48,9 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    buildConfigField("String", "INSFORGE_BASE_URL", "\"$insforgeBaseUrl\"")
+    buildConfigField("String", "INSFORGE_ANON_KEY", "\"$insforgeAnonKey\"")
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
@@ -28,9 +59,22 @@ android {
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD") ?: "linkup123"
+      val isReleaseTask = gradle.startParameter.taskNames.any {
+        it.contains("Release", ignoreCase = true) || it.contains("bundle", ignoreCase = true)
+      }
+      val storePasswordEnv = System.getenv("STORE_PASSWORD")
+      val keyPasswordEnv = System.getenv("KEY_PASSWORD")
+
+      if (isReleaseTask && (storePasswordEnv.isNullOrBlank() || keyPasswordEnv.isNullOrBlank())) {
+        throw GradleException(
+          "Release build failed: Missing required signing environment variables STORE_PASSWORD and/or KEY_PASSWORD. " +
+          "Please set STORE_PASSWORD and KEY_PASSWORD before running release builds."
+        )
+      }
+
+      storePassword = storePasswordEnv ?: ""
       keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD") ?: "linkup123"
+      keyPassword = keyPasswordEnv ?: ""
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -43,7 +87,8 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
@@ -77,6 +122,9 @@ secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
+  ignoreList.add("INSFORGE_BASE_URL")
+  ignoreList.add("INSFORGE_PROJECT_URL")
+  ignoreList.add("INSFORGE_ANON_KEY")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
@@ -126,6 +174,7 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  implementation("androidx.security:security-crypto:1.1.0-alpha06")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
